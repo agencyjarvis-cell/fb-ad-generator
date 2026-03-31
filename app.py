@@ -261,7 +261,7 @@ def generate_xlsx(gd, cab, langs):
     ws.append(HEADERS)
 
     for n in range(1, gd['adset_count'] + 1):
-        adset_name = f"{gd['offer_name']}-{cab['cab_id']}-{cab['creo_str']}-{n}"
+        adset_name = f"{gd['seller']}-{cab['cab_id']}-{cab['creo_str']}-{n}"
         ad_name = f"{cab['creo_str']}.{cab_last3}.{n}"
         camp_name = (f"{gd['offer_name']}.{gd['seller']}.{cab['cab_id']}"
                      f"_{gd['buyer_code']}:{gd['buyer_code']}")
@@ -297,7 +297,7 @@ def generate_xlsx(gd, cab, langs):
 
         s('Optimized Conversion Tracking Pixels', f"tp:{cab['pixel_id']}")
         s('Optimized Event', 'LEAD')
-        s('Link', gd['offer_url'])
+        s('Link', cab['offer_url'])
         s('Countries', gd['countries'])
         s('Location Types', 'home, recent')
 
@@ -342,7 +342,10 @@ def generate_xlsx(gd, cab, langs):
             s(f'Additional Language {i}', ld['lang'])
             s(f'Additional Title {i}', ld['title'])
             s(f'Additional Body {i}', ld['body'])
-            if gd['amazon_url']:
+            # Русский всегда получает оффер-урл кабинета, остальные — amazon
+            if ld['lang'] == 'Russian':
+                s(f'Additional Link {i}', cab['offer_url'])
+            elif gd['amazon_url']:
                 s(f'Additional Link {i}', gd['amazon_url'])
             if gd['secondary_video'] and cab['main_video']:
                 s(f'Additional Video {i} ID', f"v:{gd['secondary_video']}")
@@ -392,9 +395,8 @@ with tab1:
     budget_type  = c3.selectbox("Тип бюджета", ["ABO", "CBO"])
 
     st.subheader("Ссылки")
-    offer_url    = st.text_input("URL оффера", placeholder="https://example.com/")
     display_link = st.text_input("Display Link", placeholder="example.com")
-    amazon_url   = st.text_input("Amazon URL (для доп. языков)")
+    amazon_url   = st.text_input("Amazon URL (для доп. языков — не русского)")
 
     st.subheader("URL Tags")
     url_tags_base = st.text_input(
@@ -424,18 +426,20 @@ with tab2:
     cab_data = []
     for i in range(st.session_state.cab_count):
         st.markdown(f"**Кабинет {i+1}**")
-        cols = st.columns([2, 2, 2, 1, 2])
-        cab_id    = cols[0].text_input("ID кабинета *",        key=f"cab_{i}")
-        fp_id     = cols[1].text_input("ID фанки (без o:) *",  key=f"fp_{i}")
-        pixel_id  = cols[2].text_input("ID пикселя *",         key=f"px_{i}")
-        creo      = cols[3].text_input("Крео (УУ) *",          key=f"cr_{i}", value="01")
+        cols = st.columns([2, 2, 2, 1, 2, 3])
+        cab_id    = cols[0].text_input("ID кабинета *",           key=f"cab_{i}")
+        fp_id     = cols[1].text_input("ID фанки (без o:) *",     key=f"fp_{i}")
+        pixel_id  = cols[2].text_input("ID пикселя *",            key=f"px_{i}")
+        creo      = cols[3].text_input("Крео (УУ) *",             key=f"cr_{i}", value="01")
         main_vid  = cols[4].text_input("Video ID осн. (без v:) *", key=f"mv_{i}")
+        offer_url_cab = cols[5].text_input("URL оффера *",         key=f"ou_{i}")
         cab_data.append({
             'cab_id': cab_id.strip(),
             'fp_id': fp_id.strip(),
             'pixel_id': pixel_id.strip(),
             'creo_str': str(int(creo.strip())).zfill(2) if creo.strip().isdigit() else creo.strip(),
             'main_video': main_vid.strip(),
+            'offer_url': offer_url_cab.strip(),
         })
 
 # ── Таб 3: Таргет ────────────────────────────────────────────────────────────
@@ -485,12 +489,12 @@ if st.button("🚀 ГЕНЕРИРОВАТЬ", type="primary", use_container_widt
     if not offer_name:  errors.append("Оффер")
     if not seller:      errors.append("Селлер")
     if not buyer_code:  errors.append("Метка баера")
-    if not offer_url:   errors.append("URL оффера")
     if age_min >= age_max: errors.append("Возраст: от должен быть меньше до")
 
     for i, cab in enumerate(cab_data, 1):
         if not cab['cab_id']:   errors.append(f"Кабинет {i}: ID")
         if not cab['pixel_id']: errors.append(f"Кабинет {i}: пиксель")
+        if not cab['offer_url']: errors.append(f"Кабинет {i}: URL оффера")
         if not cab['main_video']: errors.append(f"Кабинет {i}: Video ID (обязателен для импорта)")
 
     if errors:
@@ -499,7 +503,7 @@ if st.button("🚀 ГЕНЕРИРОВАТЬ", type="primary", use_container_widt
         gd = {
             'offer_name': offer_name, 'seller': seller, 'buyer_code': buyer_code,
             'adset_count': int(adset_count), 'budget_type': budget_type, 'budget': float(budget),
-            'offer_url': offer_url, 'display_link': display_link, 'amazon_url': amazon_url,
+            'display_link': display_link, 'amazon_url': amazon_url,
             'url_tags_base': url_tags_base, 'secondary_video': secondary_video,
             'countries': countries, 'geo_locales': geo_locales,
             'age_min': int(age_min), 'age_max': int(age_max), 'gender': gender,
