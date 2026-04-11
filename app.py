@@ -401,7 +401,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("⚡ FB Ad Generator")
-st.caption("v2.6-DB-mode-redeploy")
+st.caption("v2.7")
 
 tab1, tab2, tab3, tab4 = st.tabs(["⚙ Глобально", "🗂 Кабинеты", "🎯 Таргет", "🌐 Языки"])
 
@@ -430,16 +430,16 @@ with tab1:
         "База (до =) — пиксель каждого каба добавится автоматически",
         value="sub_id_1=1&sub_id_2=seller&sub_id_3=geo&sub_id_4=age&sub_id_5={{ad.name}}&pixel"
     )
-    st.caption("v2.6-DB-mode-redeploy")
+    st.caption("v2.7")
 
     st.subheader("Amazon видос (доп. языки, одинаков для всех кабов)")
     secondary_video = st.text_input("Video ID (без v:)", placeholder="1234567890")
-    st.caption("v2.6-DB-mode-redeploy")
+    st.caption("v2.7")
 
 # ── Таб 2: Кабинеты ──────────────────────────────────────────────────────────
 with tab2:
     st.subheader("Кабинеты")
-    st.caption("v2.6-DB-mode-redeploy")
+    st.caption("v2.7")
 
     if 'cab_count' not in st.session_state:
         st.session_state.cab_count = 1
@@ -483,11 +483,18 @@ with tab3:
 
 # ── Таб 4: Языки ─────────────────────────────────────────────────────────────
 with tab4:
-    # ── Режим базы данных (новое) ──────────────────────────────────────────────
+    # ── Режим базы данных ──────────────────────────────────────────────────────
     db_mode = False
     db_product_idx = None
 
+    # Построить словарь продуктов для быстрого поиска по тексту
+    # Структура: {ru_title: {lang_name: {title, body}, ...}, ...}
+    # Также сохраняем список заголовков для маппинга индекса → продукт
+    _product_title_list = []  # список ru_title в том же порядке, что TEXTS_DB
+
     if TEXTS_DB:
+        _product_title_list = [p['ru_title'] for p in TEXTS_DB]
+
         st.subheader("🗃 База текстов")
         db_mode = st.checkbox(
             "Взять тексты из базы (texts_db.json)",
@@ -501,11 +508,33 @@ with tab4:
                 for i, p in enumerate(TEXTS_DB)
             ]
             product_labels.insert(0, "🎲 Случайный продукт")
-            chosen = st.selectbox("Выберите продукт", product_labels, index=0)
+
+            # Сохраняем предыдущий выбор для отслеживания изменений
+            _prev_product_key = st.session_state.get('_db_product_key', None)
+
+            chosen = st.selectbox(
+                "Выберите продукт", product_labels, index=0, key="db_product_select"
+            )
             if chosen.startswith("🎲"):
-                db_product_idx = None  # определится при нажатии кнопки
+                db_product_idx = None
             else:
-                db_product_idx = product_labels.index(chosen) - 1  # сдвиг из-за вставки
+                db_product_idx = product_labels.index(chosen) - 1
+
+            # Авто-заполнение полей языков при смене продукта
+            _current_product_key = chosen
+            if _current_product_key != _prev_product_key:
+                st.session_state['_db_product_key'] = _current_product_key
+                # Заполняем доп. языки если продукт выбран (не случайный)
+                if db_product_idx is not None and db_product_idx < len(TEXTS_DB):
+                    _prod = TEXTS_DB[db_product_idx]
+                    _tr = _prod['translations']
+                    # Заполняем уже существующие доп. блоки языков
+                    _count = st.session_state.get('extra_lang_count', 0)
+                    for _i in range(_count):
+                        _sel_lang = st.session_state.get(f"extra_lang_{_i}", None)
+                        if _sel_lang and _sel_lang in _tr:
+                            st.session_state[f"extra_title_{_i}"] = _tr[_sel_lang]['title']
+                            st.session_state[f"extra_body_{_i}"] = _tr[_sel_lang]['body']
 
             st.info(
                 "При DB-режиме: бюджет ±7$, старт +0–4 ч, возраст 23 или 24, "
@@ -522,35 +551,80 @@ with tab4:
     main_title = c2.text_input("Title (основной язык)", disabled=db_mode)
     main_body  = st.text_area("Body (основной язык)", height=100, disabled=db_mode)
 
-    if db_mode:
-        st.caption("v2.6-DB-mode-redeploy")
+    # ── Блок выбора количества дополнительных языков ───────────────────────────
+    st.subheader("Количество дополнительных языков")
+    _col_num, _col_btn = st.columns([2, 1])
+    with _col_num:
+        st.number_input(
+            "Количество дополнительных языков",
+            min_value=0, max_value=20, step=1,
+            value=st.session_state.get('extra_lang_count', 0),
+            key="num_extra_langs",
+            label_visibility="collapsed",
+        )
+    with _col_btn:
+        if st.button("Применить", key="btn_apply_lang_count"):
+            st.session_state['extra_lang_count'] = int(st.session_state['num_extra_langs'])
+            st.rerun()
 
+    st.divider()
     st.subheader("Дополнительные языки")
 
     if db_mode:
         st.caption(
             "DB-режим: языки из базы (10 вариантов, порядок будет перемешан при генерации). "
-            "Ручное добавление недоступно."
+            "Ручное добавление через поля ниже тоже доступно."
         )
         lang_data = []  # заполнится из базы при нажатии кнопки
     else:
-        if 'lang_count' not in st.session_state:
-            st.session_state.lang_count = 0
-
-        c1, c2 = st.columns([1, 6])
-        if c1.button("＋ Добавить язык") and st.session_state.lang_count < 9:
-            st.session_state.lang_count += 1
-        if c2.button("－ Удалить язык") and st.session_state.lang_count > 0:
-            st.session_state.lang_count -= 1
-
         lang_data = []
-        for i in range(st.session_state.lang_count):
-            st.markdown(f"**Язык {i+1}**")
-            c1, c2 = st.columns([1, 2])
-            lang  = c1.selectbox("Язык", FB_LANGUAGES, key=f"lang_{i}")
-            title = c2.text_input("Title", key=f"ltitle_{i}")
-            body  = st.text_area("Body", key=f"lbody_{i}", height=80)
-            lang_data.append({'lang': lang, 'title': title, 'body': body})
+
+    # ── Динамические блоки дополнительных языков ──────────────────────────────
+    _extra_count = st.session_state.get('extra_lang_count', 0)
+
+    # Вспомогательная функция для авто-заполнения из базы
+    def _autofill_extra_lang(i, lang_name):
+        """Заполняет title/body для доп. языка i из базы, если продукт выбран."""
+        if not db_mode or db_product_idx is None:
+            return
+        if db_product_idx < len(TEXTS_DB):
+            _prod = TEXTS_DB[db_product_idx]
+            _tr = _prod.get('translations', {})
+            if lang_name in _tr:
+                st.session_state[f"extra_title_{i}"] = _tr[lang_name]['title']
+                st.session_state[f"extra_body_{i}"] = _tr[lang_name]['body']
+
+    for _i in range(_extra_count):
+        st.markdown(f"**Язык {_i+1}**")
+        _c1, _c2 = st.columns([1, 2])
+        _prev_lang = st.session_state.get(f"extra_lang_{_i}", FB_LANGUAGES[0])
+
+        _sel_lang = _c1.selectbox(
+            f"Язык {_i+1}", FB_LANGUAGES,
+            key=f"extra_lang_{_i}",
+            index=FB_LANGUAGES.index(_prev_lang) if _prev_lang in FB_LANGUAGES else 0,
+        )
+        # Авто-заполнение при смене языка (если db_mode и продукт выбран)
+        if _sel_lang != _prev_lang:
+            _autofill_extra_lang(_i, _sel_lang)
+
+        _title_val = st.session_state.get(f"extra_title_{_i}", "")
+        _body_val  = st.session_state.get(f"extra_body_{_i}", "")
+
+        _new_title = _c2.text_input(
+            f"Заголовок {_i+1}", value=_title_val, key=f"extra_title_{_i}"
+        )
+        _new_body = st.text_area(
+            f"Текст {_i+1}", value=_body_val, key=f"extra_body_{_i}", height=80
+        )
+
+        # Собираем в lang_data — в ручном режиме используется напрямую,
+        # в DB-режиме — добавляется к языкам из базы при генерации
+        lang_data.append({
+            'lang': _sel_lang,
+            'title': _new_title,
+            'body': _new_body,
+        })
 
 # ── Кнопка генерации ─────────────────────────────────────────────────────────
 st.divider()
@@ -588,14 +662,23 @@ if st.button("🚀 ГЕНЕРИРОВАТЬ", type="primary", use_container_widt
             final_main_title = product['ru_title']
             final_main_body  = product['ru_body']
 
-            # Языки из базы
+            # Языки из базы (из translations)
             tr = product['translations']
-            lang_data = [
+            db_langs = [
                 {'lang': lang, 'title': tr[lang]['title'], 'body': tr[lang]['body']}
                 for lang in tr
             ]
-            # Перемешать порядок языков
-            random.shuffle(lang_data)
+            # Перемешать порядок языков из базы
+            random.shuffle(db_langs)
+
+            # Доп. языки из UI (extra_lang блоки), если заполнены
+            # Добавляем их ПОСЛЕ языков из базы, не дублируя
+            db_lang_names = {ld['lang'] for ld in db_langs}
+            extra_ui_langs = [
+                ld for ld in lang_data
+                if ld['lang'] not in db_lang_names and ld.get('title') and ld.get('body')
+            ]
+            lang_data = db_langs + extra_ui_langs
             # Ограничить 9-ю слотами (лимит FB)
             lang_data = lang_data[:9]
 
