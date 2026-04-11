@@ -401,7 +401,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("⚡ FB Ad Generator")
-st.caption("v2.0 · multi-cabinet · один клик → N файлов")
+st.caption("v2.6-DB-mode-redeploy")
 
 tab1, tab2, tab3, tab4 = st.tabs(["⚙ Глобально", "🗂 Кабинеты", "🎯 Таргет", "🌐 Языки"])
 
@@ -430,16 +430,16 @@ with tab1:
         "База (до =) — пиксель каждого каба добавится автоматически",
         value="sub_id_1=1&sub_id_2=seller&sub_id_3=geo&sub_id_4=age&sub_id_5={{ad.name}}&pixel"
     )
-    st.caption("Итог: `[база]=[pixel_id кабинета]`")
+    st.caption("v2.6-DB-mode-redeploy")
 
     st.subheader("Amazon видос (доп. языки, одинаков для всех кабов)")
     secondary_video = st.text_input("Video ID (без v:)", placeholder="1234567890")
-    st.caption("Ставится только если у каба заполнен основной Video ID")
+    st.caption("v2.6-DB-mode-redeploy")
 
 # ── Таб 2: Кабинеты ──────────────────────────────────────────────────────────
 with tab2:
     st.subheader("Кабинеты")
-    st.caption("Один ряд = один кабинет = один XLSX файл")
+    st.caption("v2.6-DB-mode-redeploy")
 
     if 'cab_count' not in st.session_state:
         st.session_state.cab_count = 1
@@ -523,7 +523,7 @@ with tab4:
     main_body  = st.text_area("Body (основной язык)", height=100, disabled=db_mode)
 
     if db_mode:
-        st.caption("↑ Поля заблокированы — текст подтянется из базы при генерации")
+        st.caption("v2.6-DB-mode-redeploy")
 
     st.subheader("Дополнительные языки")
 
