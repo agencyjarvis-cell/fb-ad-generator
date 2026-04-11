@@ -7,7 +7,9 @@ import openpyxl
 import os
 import io
 import zipfile
-from datetime import datetime
+import json
+import random
+from datetime import datetime, timedelta
 
 # ─── Константы ───────────────────────────────────────────────────────────────
 
@@ -247,14 +249,39 @@ FB_LANGUAGES = [
     "Urdu", "Uzbek", "Vietnamese", "Welsh",
 ]
 
+# ─── База текстов (загружается один раз при старте) ───────────────────────────
+
+@st.cache_resource
+def load_texts_db():
+    db_path = os.path.join(os.path.dirname(__file__), 'texts_db.json')
+    if os.path.exists(db_path):
+        try:
+            with open(db_path, 'r', encoding='utf-8') as f:
+                return json.load(f).get('texts', [])
+        except Exception:
+            return []
+    return []
+
+TEXTS_DB = load_texts_db()
+
 # ─── Генерация XLSX ───────────────────────────────────────────────────────────
 
 def generate_xlsx(gd, cab, langs):
     now = datetime.now()
+
+    # Сдвиг времени старта (только в DB-режиме)
+    if gd.get('start_offset_hours', 0):
+        now = now + timedelta(hours=gd['start_offset_hours'])
+
     h = now.hour % 12 or 12
     ap = 'am' if now.hour < 12 else 'pm'
     now_str = f"{now.strftime('%m/%d/%Y')} {h}:{now.strftime('%M:%S')} {ap}"
     cab_last3 = cab['cab_id'][-3:]
+
+    # Рандомизация бюджета ±7 (только в DB-режиме)
+    budget = gd['budget']
+    if gd.get('db_mode'):
+        budget = max(1.0, budget + random.randint(-7, 7))
 
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -280,7 +307,7 @@ def generate_xlsx(gd, cab, langs):
         s('New Objective', 'Yes')
 
         if gd['budget_type'] == 'CBO':
-            s('Campaign Daily Budget', gd['budget'])
+            s('Campaign Daily Budget', budget)
             s('Campaign Bid Strategy', 'Highest volume or value')
 
         s('Ad Set Run Status', 'ACTIVE')
@@ -320,7 +347,7 @@ def generate_xlsx(gd, cab, langs):
         s('Regional Regulated Categories', 'VOLUNTARY_VERIFICATION')
 
         if gd['budget_type'] == 'ABO':
-            s('Ad Set Daily Budget', gd['budget'])
+            s('Ad Set Daily Budget', budget)
             s('Ad Set Bid Strategy', 'Highest volume or value')
 
         s('Ad Status', 'ACTIVE')
@@ -456,31 +483,74 @@ with tab3:
 
 # ── Таб 4: Языки ─────────────────────────────────────────────────────────────
 with tab4:
+    # ── Режим базы данных (новое) ──────────────────────────────────────────────
+    db_mode = False
+    db_product_idx = None
+
+    if TEXTS_DB:
+        st.subheader("🗃 База текстов")
+        db_mode = st.checkbox(
+            "Взять тексты из базы (texts_db.json)",
+            help="Автоматически подставит заголовок и тело объявления из базы продуктов. "
+                 "Заодно включает рандомизацию бюджета, времени старта и возраста."
+        )
+        if db_mode:
+            product_labels = [
+                f"Продукт {i+1}: {p['ru_title'][:60]}…" if len(p['ru_title']) > 60
+                else f"Продукт {i+1}: {p['ru_title']}"
+                for i, p in enumerate(TEXTS_DB)
+            ]
+            product_labels.insert(0, "🎲 Случайный продукт")
+            chosen = st.selectbox("Выберите продукт", product_labels, index=0)
+            if chosen.startswith("🎲"):
+                db_product_idx = None  # определится при нажатии кнопки
+            else:
+                db_product_idx = product_labels.index(chosen) - 1  # сдвиг из-за вставки
+
+            st.info(
+                "При DB-режиме: бюджет ±7$, старт +0–4 ч, возраст 23 или 24, "
+                "порядок языков перемешивается автоматически."
+            )
+        st.divider()
+    else:
+        st.info("texts_db.json не найден рядом с app.py — ручной режим")
+
     st.subheader("Основной язык")
     c1, c2 = st.columns([1, 2])
     main_lang  = c1.selectbox("Язык", FB_LANGUAGES,
                                index=FB_LANGUAGES.index("Russian"))
-    main_title = c2.text_input("Title (основной язык)")
-    main_body  = st.text_area("Body (основной язык)", height=100)
+    main_title = c2.text_input("Title (основной язык)", disabled=db_mode)
+    main_body  = st.text_area("Body (основной язык)", height=100, disabled=db_mode)
+
+    if db_mode:
+        st.caption("↑ Поля заблокированы — текст подтянется из базы при генерации")
 
     st.subheader("Дополнительные языки")
-    if 'lang_count' not in st.session_state:
-        st.session_state.lang_count = 0
 
-    c1, c2 = st.columns([1, 6])
-    if c1.button("＋ Добавить язык") and st.session_state.lang_count < 9:
-        st.session_state.lang_count += 1
-    if c2.button("－ Удалить язык") and st.session_state.lang_count > 0:
-        st.session_state.lang_count -= 1
+    if db_mode:
+        st.caption(
+            "DB-режим: языки из базы (10 вариантов, порядок будет перемешан при генерации). "
+            "Ручное добавление недоступно."
+        )
+        lang_data = []  # заполнится из базы при нажатии кнопки
+    else:
+        if 'lang_count' not in st.session_state:
+            st.session_state.lang_count = 0
 
-    lang_data = []
-    for i in range(st.session_state.lang_count):
-        st.markdown(f"**Язык {i+1}**")
-        c1, c2 = st.columns([1, 2])
-        lang  = c1.selectbox("Язык", FB_LANGUAGES, key=f"lang_{i}")
-        title = c2.text_input("Title", key=f"ltitle_{i}")
-        body  = st.text_area("Body", key=f"lbody_{i}", height=80)
-        lang_data.append({'lang': lang, 'title': title, 'body': body})
+        c1, c2 = st.columns([1, 6])
+        if c1.button("＋ Добавить язык") and st.session_state.lang_count < 9:
+            st.session_state.lang_count += 1
+        if c2.button("－ Удалить язык") and st.session_state.lang_count > 0:
+            st.session_state.lang_count -= 1
+
+        lang_data = []
+        for i in range(st.session_state.lang_count):
+            st.markdown(f"**Язык {i+1}**")
+            c1, c2 = st.columns([1, 2])
+            lang  = c1.selectbox("Язык", FB_LANGUAGES, key=f"lang_{i}")
+            title = c2.text_input("Title", key=f"ltitle_{i}")
+            body  = st.text_area("Body", key=f"lbody_{i}", height=80)
+            lang_data.append({'lang': lang, 'title': title, 'body': body})
 
 # ── Кнопка генерации ─────────────────────────────────────────────────────────
 st.divider()
@@ -489,7 +559,8 @@ if st.button("🚀 ГЕНЕРИРОВАТЬ", type="primary", use_container_widt
     if not offer_name:  errors.append("Оффер")
     if not seller:      errors.append("Селлер")
     if not buyer_code:  errors.append("Метка баера")
-    if age_min >= age_max: errors.append("Возраст: от должен быть меньше до")
+    if not db_mode and age_min >= age_max:
+        errors.append("Возраст: от должен быть меньше до")
 
     for i, cab in enumerate(cab_data, 1):
         if not cab['cab_id']:   errors.append(f"Кабинет {i}: ID")
@@ -500,14 +571,51 @@ if st.button("🚀 ГЕНЕРИРОВАТЬ", type="primary", use_container_widt
     if errors:
         st.error("Не заполнено:\n- " + "\n- ".join(errors))
     else:
+        # ── DB-режим: подставляем тексты и рандомизируем ──────────────────────
+        final_main_title = main_title
+        final_main_body  = main_body
+        final_age_min    = int(age_min)
+        final_age_max    = int(age_max)
+        start_offset_hours = 0
+
+        if db_mode and TEXTS_DB:
+            # Выбор продукта
+            if db_product_idx is None:
+                product = random.choice(TEXTS_DB)
+            else:
+                product = TEXTS_DB[db_product_idx]
+
+            final_main_title = product['ru_title']
+            final_main_body  = product['ru_body']
+
+            # Языки из базы
+            tr = product['translations']
+            lang_data = [
+                {'lang': lang, 'title': tr[lang]['title'], 'body': tr[lang]['body']}
+                for lang in tr
+            ]
+            # Перемешать порядок языков
+            random.shuffle(lang_data)
+            # Ограничить 9-ю слотами (лимит FB)
+            lang_data = lang_data[:9]
+
+            # Возраст: 23 или 24
+            final_age_min = random.choice([23, 24])
+            final_age_max = int(age_max)
+
+            # Сдвиг времени старта: 0–4 часа
+            start_offset_hours = random.randint(0, 4)
+
         gd = {
             'offer_name': offer_name, 'seller': seller, 'buyer_code': buyer_code,
             'adset_count': int(adset_count), 'budget_type': budget_type, 'budget': float(budget),
             'display_link': display_link, 'amazon_url': amazon_url,
             'url_tags_base': url_tags_base, 'secondary_video': secondary_video,
             'countries': countries, 'geo_locales': geo_locales,
-            'age_min': int(age_min), 'age_max': int(age_max), 'gender': gender,
-            'main_lang': main_lang, 'main_title': main_title, 'main_body': main_body,
+            'age_min': final_age_min, 'age_max': final_age_max, 'gender': gender,
+            'main_lang': main_lang, 'main_title': final_main_title, 'main_body': final_main_body,
+            'db_mode': db_mode,
+            'start_offset_hours': start_offset_hours,
         }
 
         if len(cab_data) == 1:
