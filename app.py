@@ -401,7 +401,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("⚡ FB Ad Generator")
-st.caption("v2.7")
+st.caption("v2.8")
 
 tab1, tab2, tab3, tab4 = st.tabs(["⚙ Глобально", "🗂 Кабинеты", "🎯 Таргет", "🌐 Языки"])
 
@@ -528,13 +528,21 @@ with tab4:
                 if db_product_idx is not None and db_product_idx < len(TEXTS_DB):
                     _prod = TEXTS_DB[db_product_idx]
                     _tr = _prod['translations']
-                    # Заполняем уже существующие доп. блоки языков
                     _count = st.session_state.get('extra_lang_count', 0)
-                    for _i in range(_count):
-                        _sel_lang = st.session_state.get(f"extra_lang_{_i}", None)
-                        if _sel_lang and _sel_lang in _tr:
-                            st.session_state[f"extra_title_{_i}"] = _tr[_sel_lang]['title']
-                            st.session_state[f"extra_body_{_i}"] = _tr[_sel_lang]['body']
+                    if _count > 0:
+                        # Случайно выбираем N уникальных языков из пула переводов
+                        _available_langs = list(_tr.keys())
+                        _sampled_langs = random.sample(
+                            _available_langs, min(_count, len(_available_langs))
+                        )
+                        for _i in range(_count):
+                            if _i < len(_sampled_langs):
+                                _lang = _sampled_langs[_i]
+                                # Записываем выбранный язык в селектор этого слота
+                                st.session_state[f"extra_lang_{_i}"] = _lang
+                                # Записываем title и body из базы для этого языка
+                                st.session_state[f"extra_title_{_i}"] = _tr[_lang]['title']
+                                st.session_state[f"extra_body_{_i}"] = _tr[_lang]['body']
 
             st.info(
                 "При DB-режиме: бюджет ±7$, старт +0–4 ч, возраст 23 или 24, "
