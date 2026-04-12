@@ -386,25 +386,28 @@ def generate_xlsx(gd, cab, langs):
     return buf.getvalue()
 
 
-def rotate_langs(langs, cab_index):
-    """Rotate additional languages for variety across Excel files.
-
-    Pattern: cyclic shift by cab_index * 2 positions so that
-    file 0 keeps original order, file 1 puts position-3 first, etc.
-    Safety rule: Russian must never occupy position 0 (Additional Language 1).
-    If after rotation Russian is first, nudge forward by 1 until it's not.
+def rotate_langs_for_file(file_index, main_lang, main_title, main_body, lang_data):
     """
-    if not langs:
-        return langs
-    n = len(langs)
-    shift = (cab_index * 2) % n
-    rotated = langs[shift:] + langs[:shift]
-    # Russian-first guard: keep nudging by 1 (at most n-1 extra times)
-    for _ in range(n - 1):
+    Rotate the full language pool (main + additionals) left by 2*file_index.
+    Russian is never placed in the main (Default Language) slot.
+    Returns (new_main_lang, new_main_title, new_main_body, new_lang_data).
+    """
+    all_entries = [{'lang': main_lang, 'title': main_title, 'body': main_body}] + list(lang_data)
+    n = len(all_entries)
+    if n == 0:
+        return main_lang, main_title, main_body, lang_data
+
+    offset = (2 * file_index) % n
+    rotated = all_entries[offset:] + all_entries[:offset]
+
+    # Advance until non-Russian is first (at most n steps)
+    for _ in range(n):
         if rotated[0]['lang'] != 'Russian':
             break
         rotated = rotated[1:] + rotated[:1]
-    return rotated
+
+    new_main = rotated[0]
+    return new_main['lang'], new_main['title'], new_main['body'], rotated[1:]
 
 
 # ─── UI ───────────────────────────────────────────────────────────────────────
@@ -423,7 +426,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("⚡ FB Ad Generator")
-st.caption("v2.8")
+st.caption("v2.9")
 
 tab1, tab2, tab3, tab4 = st.tabs(["⚙ Глобально", "🗂 Кабинеты", "🎯 Таргет", "🌐 Языки"])
 
@@ -734,7 +737,11 @@ if st.button("🚀 ГЕНЕРИРОВАТЬ", type="primary", use_container_widt
         if len(cab_data) == 1:
             # Один файл — скачать напрямую
             cab = cab_data[0]
-            xlsx = generate_xlsx(gd, cab, rotate_langs(lang_data, 0))
+            r_ml, r_mt, r_mb, r_ld = rotate_langs_for_file(
+                0, gd['main_lang'], gd['main_title'], gd['main_body'], lang_data
+            )
+            gd_file = dict(gd, main_lang=r_ml, main_title=r_mt, main_body=r_mb)
+            xlsx = generate_xlsx(gd_file, cab, r_ld)
             camp_name = f"{offer_name}.{seller}.{cab['cab_id']}_{buyer_code}-{buyer_code}"
             st.download_button(
                 label=f"⬇ Скачать {camp_name}.xlsx",
@@ -743,11 +750,15 @@ if st.button("🚀 ГЕНЕРИРОВАТЬ", type="primary", use_container_widt
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
         else:
-            # Несколько файлов — ZIP
+            # Несколько файлов — ZIP; языки ротируются на 2 позиции между файлами
             zip_buf = io.BytesIO()
             with zipfile.ZipFile(zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
-                for cab_idx, cab in enumerate(cab_data):
-                    xlsx = generate_xlsx(gd, cab, rotate_langs(lang_data, cab_idx))
+                for i, cab in enumerate(cab_data):
+                    r_ml, r_mt, r_mb, r_ld = rotate_langs_for_file(
+                        i, gd['main_lang'], gd['main_title'], gd['main_body'], lang_data
+                    )
+                    gd_file = dict(gd, main_lang=r_ml, main_title=r_mt, main_body=r_mb)
+                    xlsx = generate_xlsx(gd_file, cab, r_ld)
                     safe = f"{offer_name}.{seller}.{cab['cab_id']}_{buyer_code}-{buyer_code}.xlsx"
                     zf.writestr(safe, xlsx)
             zip_buf.seek(0)
