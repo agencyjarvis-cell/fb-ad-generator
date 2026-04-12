@@ -385,6 +385,28 @@ def generate_xlsx(gd, cab, langs):
     buf.seek(0)
     return buf.getvalue()
 
+
+def rotate_langs(langs, cab_index):
+    """Rotate additional languages for variety across Excel files.
+
+    Pattern: cyclic shift by cab_index * 2 positions so that
+    file 0 keeps original order, file 1 puts position-3 first, etc.
+    Safety rule: Russian must never occupy position 0 (Additional Language 1).
+    If after rotation Russian is first, nudge forward by 1 until it's not.
+    """
+    if not langs:
+        return langs
+    n = len(langs)
+    shift = (cab_index * 2) % n
+    rotated = langs[shift:] + langs[:shift]
+    # Russian-first guard: keep nudging by 1 (at most n-1 extra times)
+    for _ in range(n - 1):
+        if rotated[0]['lang'] != 'Russian':
+            break
+        rotated = rotated[1:] + rotated[:1]
+    return rotated
+
+
 # ─── UI ───────────────────────────────────────────────────────────────────────
 
 st.set_page_config(page_title="FB Ad Generator", page_icon="⚡", layout="wide")
@@ -712,7 +734,7 @@ if st.button("🚀 ГЕНЕРИРОВАТЬ", type="primary", use_container_widt
         if len(cab_data) == 1:
             # Один файл — скачать напрямую
             cab = cab_data[0]
-            xlsx = generate_xlsx(gd, cab, lang_data)
+            xlsx = generate_xlsx(gd, cab, rotate_langs(lang_data, 0))
             camp_name = f"{offer_name}.{seller}.{cab['cab_id']}_{buyer_code}-{buyer_code}"
             st.download_button(
                 label=f"⬇ Скачать {camp_name}.xlsx",
@@ -724,8 +746,8 @@ if st.button("🚀 ГЕНЕРИРОВАТЬ", type="primary", use_container_widt
             # Несколько файлов — ZIP
             zip_buf = io.BytesIO()
             with zipfile.ZipFile(zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
-                for cab in cab_data:
-                    xlsx = generate_xlsx(gd, cab, lang_data)
+                for cab_idx, cab in enumerate(cab_data):
+                    xlsx = generate_xlsx(gd, cab, rotate_langs(lang_data, cab_idx))
                     safe = f"{offer_name}.{seller}.{cab['cab_id']}_{buyer_code}-{buyer_code}.xlsx"
                     zf.writestr(safe, xlsx)
             zip_buf.seek(0)
