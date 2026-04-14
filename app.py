@@ -9,7 +9,7 @@ import io
 import zipfile
 import json
 import random
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # ─── Константы ───────────────────────────────────────────────────────────────
 
@@ -239,7 +239,7 @@ FB_LANGUAGES = [
     "Afrikaans", "Albanian", "Arabic", "Armenian", "Azerbaijani", "Basque", "Belarusian",
     "Bengali", "Bosnian", "Bulgarian", "Catalan", "Chinese (Simplified)",
     "Chinese (Traditional)", "Croatian", "Czech", "Danish", "Dutch", "English",
-    "Estonian", "Finnish", "French", "Galician", "Georgian", "German", "Greek",
+    "Estonian", "Finnish", "French", "Georgian", "German", "Greek",
     "Gujarati", "Hebrew", "Hindi", "Hungarian", "Indonesian", "Italian", "Japanese",
     "Kannada", "Kazakh", "Korean", "Kurdish (Kurmanji)", "Latvian", "Lithuanian",
     "Macedonian", "Malay", "Malayalam", "Marathi", "Mongolian", "Nepali", "Norwegian",
@@ -269,10 +269,6 @@ TEXTS_DB = load_texts_db()
 def generate_xlsx(gd, cab, langs):
     now = datetime.now()
 
-    # Сдвиг времени старта (только в DB-режиме)
-    if gd.get('start_offset_hours', 0):
-        now = now + timedelta(hours=gd['start_offset_hours'])
-
     h = now.hour % 12 or 12
     ap = 'am' if now.hour < 12 else 'pm'
     now_str = f"{now.strftime('%m/%d/%Y')} {h}:{now.strftime('%M:%S')} {ap}"
@@ -292,7 +288,7 @@ def generate_xlsx(gd, cab, langs):
         ad_name = f"{cab['creo_str']}.{cab_last3}.{n}"
         camp_name = (f"{gd['offer_name']}.{gd['seller']}.{cab['cab_id']}"
                      f"_{gd['buyer_code']}:{gd['buyer_code']}")
-        url_tags = f"{gd['url_tags_base']}={cab['pixel_id']}"
+        url_tags = f"{gd['url_tags_base']}{cab['pixel_id']}"
 
         row = [''] * len(HEADERS)
 
@@ -324,7 +320,6 @@ def generate_xlsx(gd, cab, langs):
 
         s('Optimized Conversion Tracking Pixels', f"tp:{cab['pixel_id']}")
         s('Optimized Event', 'LEAD')
-        s('Link', cab['offer_url'])
         s('Countries', gd['countries'])
         s('Location Types', 'home, recent')
 
@@ -363,6 +358,12 @@ def generate_xlsx(gd, cab, langs):
         s('URL Tags', url_tags)
         s('Call to Action', 'LEARN_MORE')
         s('Video ID', f"v:{cab['main_video']}")
+
+        # Черная ссылка только для Russian; для остальных языков — amazon
+        if gd['main_lang'] == 'Russian':
+            s('Link', cab['offer_url'])
+        elif gd['amazon_url']:
+            s('Link', gd['amazon_url'])
 
         # Доп. языки — видосы только если есть основной
         for i, ld in enumerate(langs, 1):
@@ -452,8 +453,8 @@ with tab1:
 
     st.subheader("URL Tags")
     url_tags_base = st.text_input(
-        "База (до =) — пиксель каждого каба добавится автоматически",
-        value="sub_id_1=1&sub_id_2=seller&sub_id_3=geo&sub_id_4=age&sub_id_5={{ad.name}}&pixel"
+        "База UTM — пиксель каждого каба будет просто дописан в конец строки",
+        value="sub_id_1=1&sub_id_2=seller&sub_id_3=geo&sub_id_4=age&sub_id_5={{ad.name}}&pixel="
     )
     st.caption("v2.7")
 
@@ -553,6 +554,9 @@ with tab4:
                 if db_product_idx is not None and db_product_idx < len(TEXTS_DB):
                     _prod = TEXTS_DB[db_product_idx]
                     _tr = _prod['translations']
+                    # Заполняем основные поля Russian из базы
+                    st.session_state['main_title_input'] = _prod['ru_title']
+                    st.session_state['main_body_input'] = _prod['ru_body']
                     _count = st.session_state.get('extra_lang_count', 0)
                     if _count > 0:
                         # Случайно выбираем N уникальных языков из пула переводов
@@ -570,7 +574,7 @@ with tab4:
                                 st.session_state[f"extra_body_{_i}"] = _tr[_lang]['body']
 
             st.info(
-                "При DB-режиме: бюджет ±7$, старт +0–4 ч, возраст 23 или 24, "
+                "При DB-режиме: бюджет ±7$, возраст 23 или 24, "
                 "порядок языков перемешивается автоматически."
             )
         st.divider()
@@ -581,8 +585,8 @@ with tab4:
     c1, c2 = st.columns([1, 2])
     main_lang  = c1.selectbox("Язык", FB_LANGUAGES,
                                index=FB_LANGUAGES.index("Russian"))
-    main_title = c2.text_input("Title (основной язык)", disabled=db_mode)
-    main_body  = st.text_area("Body (основной язык)", height=100, disabled=db_mode)
+    main_title = c2.text_input("Title (основной язык)", key="main_title_input")
+    main_body  = st.text_area("Body (основной язык)", height=100, key="main_body_input")
 
     # ── Блок выбора количества дополнительных языков ───────────────────────────
     st.subheader("Количество дополнительных языков")
@@ -683,17 +687,17 @@ if st.button("🚀 ГЕНЕРИРОВАТЬ", type="primary", use_container_widt
         final_main_body  = main_body
         final_age_min    = int(age_min)
         final_age_max    = int(age_max)
-        start_offset_hours = 0
 
         if db_mode and TEXTS_DB:
             # Выбор продукта
             if db_product_idx is None:
                 product = random.choice(TEXTS_DB)
+                # Для случайного продукта берём тексты из базы
+                final_main_title = product['ru_title']
+                final_main_body  = product['ru_body']
             else:
                 product = TEXTS_DB[db_product_idx]
-
-            final_main_title = product['ru_title']
-            final_main_body  = product['ru_body']
+                # Тексты берём из UI-полей (были авто-заполнены, но пользователь мог редактировать)
 
             # Языки из базы (из translations)
             tr = product['translations']
@@ -703,6 +707,9 @@ if st.button("🚀 ГЕНЕРИРОВАТЬ", type="primary", use_container_widt
             ]
             # Перемешать порядок языков из базы
             random.shuffle(db_langs)
+            # Ограничить количество языков из базы по выбору пользователя
+            _extra_limit = st.session_state.get('extra_lang_count', 0)
+            db_langs = db_langs[:_extra_limit]
 
             # Доп. языки из UI (extra_lang блоки), если заполнены
             # Добавляем их ПОСЛЕ языков из базы, не дублируя
@@ -719,9 +726,6 @@ if st.button("🚀 ГЕНЕРИРОВАТЬ", type="primary", use_container_widt
             final_age_min = random.choice([23, 24])
             final_age_max = int(age_max)
 
-            # Сдвиг времени старта: 0–4 часа
-            start_offset_hours = random.randint(0, 4)
-
         gd = {
             'offer_name': offer_name, 'seller': seller, 'buyer_code': buyer_code,
             'adset_count': int(adset_count), 'budget_type': budget_type, 'budget': float(budget),
@@ -731,7 +735,6 @@ if st.button("🚀 ГЕНЕРИРОВАТЬ", type="primary", use_container_widt
             'age_min': final_age_min, 'age_max': final_age_max, 'gender': gender,
             'main_lang': main_lang, 'main_title': final_main_title, 'main_body': final_main_body,
             'db_mode': db_mode,
-            'start_offset_hours': start_offset_hours,
         }
 
         if len(cab_data) == 1:
