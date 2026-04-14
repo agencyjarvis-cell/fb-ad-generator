@@ -719,7 +719,8 @@ if st.button("🚀 ГЕНЕРИРОВАТЬ", type="primary", use_container_widt
                 if ld['lang'] not in db_lang_names and ld.get('title') and ld.get('body')
             ]
             lang_data = db_langs + extra_ui_langs
-            # Ограничить 9-ю слотами (лимит FB)
+            # Ограничить выбором пользователя (extra_lang_count), затем лимитом FB (9 слотов)
+            lang_data = lang_data[:_extra_limit]
             lang_data = lang_data[:9]
 
             # Возраст: 23 или 24
