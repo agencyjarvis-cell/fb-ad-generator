@@ -560,7 +560,10 @@ with tab4:
                     _count = st.session_state.get('extra_lang_count', 0)
                     if _count > 0:
                         # Случайно выбираем N уникальных языков из пула переводов
-                        _available_langs = list(_tr.keys())
+                        # Исключаем Russian (он в основном слоте) и Galician (FB не принимает)
+                        _available_langs = [
+                            l for l in _tr.keys() if l not in ('Russian', 'Galician')
+                        ]
                         _sampled_langs = random.sample(
                             _available_langs, min(_count, len(_available_langs))
                         )
@@ -595,7 +598,6 @@ with tab4:
         st.number_input(
             "Количество дополнительных языков",
             min_value=0, max_value=20, step=1,
-            value=st.session_state.get('extra_lang_count', 0),
             key="num_extra_langs",
             label_visibility="collapsed",
         )
@@ -645,14 +647,11 @@ with tab4:
         if _sel_lang != _prev_lang:
             _autofill_extra_lang(_i, _sel_lang)
 
-        _title_val = st.session_state.get(f"extra_title_{_i}", "")
-        _body_val  = st.session_state.get(f"extra_body_{_i}", "")
-
         _new_title = _c2.text_input(
-            f"Заголовок {_i+1}", value=_title_val, key=f"extra_title_{_i}"
+            f"Заголовок {_i+1}", key=f"extra_title_{_i}"
         )
         _new_body = st.text_area(
-            f"Текст {_i+1}", value=_body_val, key=f"extra_body_{_i}", height=80
+            f"Текст {_i+1}", key=f"extra_body_{_i}", height=80
         )
 
         # Собираем в lang_data — в ручном режиме используется напрямую,
@@ -700,10 +699,12 @@ if st.button("🚀 ГЕНЕРИРОВАТЬ", type="primary", use_container_widt
                 # Тексты берём из UI-полей (были авто-заполнены, но пользователь мог редактировать)
 
             # Языки из базы (из translations)
+            # Исключаем Russian (он в основном слоте) и Galician (FB не принимает)
             tr = product['translations']
             db_langs = [
                 {'lang': lang, 'title': tr[lang]['title'], 'body': tr[lang]['body']}
                 for lang in tr
+                if lang not in ('Russian', 'Galician')
             ]
             # Перемешать порядок языков из базы
             random.shuffle(db_langs)
