@@ -264,6 +264,47 @@ def load_texts_db():
 
 TEXTS_DB = load_texts_db()
 
+# ─── Персистентность session state ───────────────────────────────────────────
+# При разрыве WebSocket Streamlit создаёт НОВУЮ сессию (session_state обнуляется).
+# Сохраняем критичные ключи в файл и восстанавливаем при каждом новом старте.
+
+_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '_app_state.json')
+_MAX_CAB_COUNT = 20
+
+def _load_saved_state():
+    try:
+        if os.path.exists(_STATE_FILE):
+            with open(_STATE_FILE, 'r', encoding='utf-8') as _f:
+                data = json.load(_f)
+                if isinstance(data, dict):
+                    return data
+    except Exception:
+        pass
+    return {}
+
+def _save_app_state():
+    try:
+        data = {
+            'cab_count': st.session_state.get('cab_count', 1),
+            'extra_lang_count': st.session_state.get('extra_lang_count', 0),
+        }
+        for i in range(data['cab_count']):
+            for prefix in ('cab', 'fp', 'px', 'cr', 'mv', 'ou'):
+                key = f"{prefix}_{i}"
+                if key in st.session_state:
+                    data[key] = st.session_state[key]
+        for i in range(data['extra_lang_count']):
+            for prefix in ('extra_lang', 'extra_title', 'extra_body'):
+                key = f"{prefix}_{i}"
+                if key in st.session_state:
+                    data[key] = st.session_state[key]
+        _tmp = _STATE_FILE + '.tmp'
+        with open(_tmp, 'w', encoding='utf-8') as _f:
+            json.dump(data, _f, ensure_ascii=False)
+        os.replace(_tmp, _STATE_FILE)
+    except Exception:
+        pass
+
 # ─── Генерация XLSX ───────────────────────────────────────────────────────────
 
 def generate_xlsx(gd, cab, langs):
@@ -429,6 +470,16 @@ st.markdown("""
 st.title("⚡ FB Ad Generator")
 st.caption("v2.9")
 
+# Восстанавливаем state после WebSocket-рестарта (новая сессия = пустой session_state)
+if '_state_loaded' not in st.session_state:
+    _saved = _load_saved_state()
+    st.session_state['cab_count'] = max(1, min(_MAX_CAB_COUNT, _saved.get('cab_count', 1)))
+    st.session_state['extra_lang_count'] = max(0, min(20, _saved.get('extra_lang_count', 0)))
+    for _k, _v in _saved.items():
+        if _k not in ('cab_count', 'extra_lang_count') and _k not in st.session_state:
+            st.session_state[_k] = _v
+    st.session_state['_state_loaded'] = True
+
 tab1, tab2, tab3, tab4 = st.tabs(["⚙ Глобально", "🗂 Кабинеты", "🎯 Таргет", "🌐 Языки"])
 
 # ── Таб 1: Глобально ─────────────────────────────────────────────────────────
@@ -467,9 +518,6 @@ with tab2:
     st.subheader("Кабинеты")
     st.caption("v2.7")
 
-    if 'cab_count' not in st.session_state:
-        st.session_state.cab_count = 1
-
     c1, c2 = st.columns([1, 6])
     if c1.button("＋ Добавить"):
         st.session_state.cab_count += 1
@@ -494,6 +542,9 @@ with tab2:
             'main_video': main_vid.strip(),
             'offer_url': offer_url_cab.strip(),
         })
+
+    # Сохраняем state на диск — защита от WebSocket-рестарта (потери сессии)
+    _save_app_state()
 
 # ── Таб 3: Таргет ────────────────────────────────────────────────────────────
 with tab3:
@@ -609,7 +660,6 @@ with tab4:
     with _col_btn:
         if st.button("Применить", key="btn_apply_lang_count"):
             st.session_state['extra_lang_count'] = int(st.session_state['num_extra_langs'])
-            st.rerun()
 
     st.divider()
     st.subheader("Дополнительные языки")

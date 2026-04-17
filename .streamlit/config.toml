@@ -1,0 +1,10 @@
+[server]
+headless = true
+maxUploadSize = 200
+
+[browser]
+gatherUsageStats = false
+
+[runner]
+# Prevent session loss on file changes during development
+fastReruns = true
