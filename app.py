@@ -559,17 +559,21 @@ with tab4:
                     st.session_state['main_body_input'] = _prod['ru_body']
                     _count = st.session_state.get('extra_lang_count', 0)
                     if _count > 0:
-                        # Случайно выбираем N уникальных языков из пула переводов
-                        _available_langs = list(_tr.keys())
+                        # Слот 0 всегда Russian (ru_title/ru_body продукта)
+                        st.session_state['extra_lang_0'] = 'Russian'
+                        st.session_state['extra_title_0'] = _prod['ru_title']
+                        st.session_state['extra_body_0'] = _prod['ru_body']
+                        # Остальные слоты: рандом из переводов, Galician исключён
+                        _available_langs = [l for l in _tr.keys() if l != 'Galician']
+                        _rest_count = max(0, _count - 1)
                         _sampled_langs = random.sample(
-                            _available_langs, min(_count, len(_available_langs))
+                            _available_langs, min(_rest_count, len(_available_langs))
                         )
-                        for _i in range(_count):
-                            if _i < len(_sampled_langs):
-                                _lang = _sampled_langs[_i]
-                                # Записываем выбранный язык в селектор этого слота
+                        for _i in range(1, _count):
+                            _idx = _i - 1
+                            if _idx < len(_sampled_langs):
+                                _lang = _sampled_langs[_idx]
                                 st.session_state[f"extra_lang_{_i}"] = _lang
-                                # Записываем title и body из базы для этого языка
                                 st.session_state[f"extra_title_{_i}"] = _tr[_lang]['title']
                                 st.session_state[f"extra_body_{_i}"] = _tr[_lang]['body']
 
@@ -645,14 +649,11 @@ with tab4:
         if _sel_lang != _prev_lang:
             _autofill_extra_lang(_i, _sel_lang)
 
-        _title_val = st.session_state.get(f"extra_title_{_i}", "")
-        _body_val  = st.session_state.get(f"extra_body_{_i}", "")
-
         _new_title = _c2.text_input(
-            f"Заголовок {_i+1}", value=_title_val, key=f"extra_title_{_i}"
+            f"Заголовок {_i+1}", key=f"extra_title_{_i}"
         )
         _new_body = st.text_area(
-            f"Текст {_i+1}", value=_body_val, key=f"extra_body_{_i}", height=80
+            f"Текст {_i+1}", key=f"extra_body_{_i}", height=80
         )
 
         # Собираем в lang_data — в ручном режиме используется напрямую,
@@ -699,29 +700,22 @@ if st.button("🚀 ГЕНЕРИРОВАТЬ", type="primary", use_container_widt
                 product = TEXTS_DB[db_product_idx]
                 # Тексты берём из UI-полей (были авто-заполнены, но пользователь мог редактировать)
 
-            # Языки из базы (из translations)
-            tr = product['translations']
-            db_langs = [
-                {'lang': lang, 'title': tr[lang]['title'], 'body': tr[lang]['body']}
-                for lang in tr
-            ]
-            # Перемешать порядок языков из базы
-            random.shuffle(db_langs)
-            # Ограничить количество языков из базы по выбору пользователя
             _extra_limit = st.session_state.get('extra_lang_count', 0)
-            db_langs = db_langs[:_extra_limit]
 
-            # Доп. языки из UI (extra_lang блоки), если заполнены
-            # Добавляем их ПОСЛЕ языков из базы, не дублируя
-            db_lang_names = {ld['lang'] for ld in db_langs}
-            extra_ui_langs = [
-                ld for ld in lang_data
-                if ld['lang'] not in db_lang_names and ld.get('title') and ld.get('body')
-            ]
-            lang_data = db_langs + extra_ui_langs
-            # Ограничить выбором пользователя (extra_lang_count), затем лимитом FB (9 слотов)
-            lang_data = lang_data[:_extra_limit]
-            lang_data = lang_data[:9]
+            if db_product_idx is None:
+                # Рандомный продукт: языки из базы, Russian всегда первый, Galician исключён
+                tr = product['translations']
+                ru_entry = {'lang': 'Russian', 'title': product['ru_title'], 'body': product['ru_body']}
+                other_langs = [
+                    {'lang': lang, 'title': tr[lang]['title'], 'body': tr[lang]['body']}
+                    for lang in tr if lang != 'Galician'
+                ]
+                random.shuffle(other_langs)
+                lang_data = ([ru_entry] + other_langs)[:_extra_limit][:9]
+            else:
+                # Конкретный продукт: данные из UI-полей на момент нажатия кнопки
+                # lang_data уже содержит актуальные значения (включая Russian в слоте 0)
+                lang_data = lang_data[:_extra_limit][:9]
 
             # Возраст: 23 или 24
             final_age_min = random.choice([23, 24])
